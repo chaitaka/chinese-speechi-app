@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中文语音识别与录音</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+            background: linear-gradient(to right, #e3f2fd, #bbdefb);
+            color: #333;
+        }
+        button {
+            font-size: 16px;
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #64b5f6;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #42a5f5;
+        }
+        #output {
+            margin-top: 20px;
+            font-size: 18px;
+            background-color: #ffffffaa;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        #recordings {
+            margin-top: 20px;
+        }
+        .highlight {
+            background-color: yellow;
+            font-weight: bold;
+        }
+        .passed {
+            color: green;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>中文语音识别与录音</h1>
+    <div id="phrase-list">
+        <h2>发音句子列表</h2>
+        <ul>
+            <li id="phrase-1">捶肩膀</li>
+            <li id="phrase-2">背小孩儿</li>
+            <li id="phrase-3">说孩子</li>
+            <li id="phrase-4">做准备</li>
+            <li id="phrase-5">打毛衣</li>
+            <li id="phrase-6">睡懒觉</li>
+            <li id="phrase-7">上闹钟</li>
+            <li id="phrase-8">拔插头</li>
+            <li id="phrase-9">盖被子</li>
+            <li id="phrase-10">敲门</li>
+        </ul>
+    </div>
+    <p id="sentence">请点击开始按钮并朗读以下句子：</p>
+    <input type="text" id="text-to-read" value="捶肩膀" style="font-size: 16px; padding: 5px; width: 80%; border: 1px solid #ccc; border-radius: 5px;" disabled>
+    <button id="start-record">开始</button>
+    <button id="stop-record" disabled>停止</button>
+    <div id="output"></div>
+    <div id="recordings">
+        <h2>录音记录</h2>
+        <ul id="recording-list"></ul>
+    </div>
+
+    <script>
+        const phrases = [
+            "捶肩膀",
+            "背小孩儿",
+            "说孩子",
+            "做准备",
+            "打毛衣",
+            "睡懒觉",
+            "上闹钟",
+            "拔插头",
+            "盖被子",
+            "敲门"
+        ];
+
+        let currentPhraseIndex = 0;
+        const textToReadInput = document.getElementById("text-to-read");
+        const startButton = document.getElementById("start-record");
+        const stopButton = document.getElementById("stop-record");
+        const outputDiv = document.getElementById("output");
+        const recordingList = document.getElementById("recording-list");
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let recognition;
+        let correctSoundPlayed = false;
+        let stream;
+
+        async function initializeStream() {
+            try {
+                if (!stream) {
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                }
+            } catch (error) {
+                console.error("麦克风访问失败：", error);
+                outputDiv.innerHTML = `<p>无法访问麦克风，请检查浏览器设置。</p>`;
+            }
+        }
+
+        function playCorrectSound() {
+            if (!correctSoundPlayed) {
+                const utterance = new SpeechSynthesisUtterance("准确！");
+                utterance.lang = "zh-CN";
+                utterance.pitch = 1.2;
+                const voices = window.speechSynthesis.getVoices();
+                const chineseVoice = voices.find(voice => voice.lang === "zh-CN");
+                if (chineseVoice) {
+                    utterance.voice = chineseVoice;
+                }
+                window.speechSynthesis.speak(utterance);
+                correctSoundPlayed = true;
+            }
+        }
+
+        if (!window.SpeechRecognition && !window.webkitSpeechRecognition) {
+            alert("您的浏览器不支持语音识别功能，请使用最新的Chrome浏览器。");
+        } else {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.lang = "zh-CN";
+            recognition.continuous = true;
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                outputDiv.innerHTML = `<p>您读的是：${transcript}</p>`;
+
+                const cleanText = normalizeText(textToReadInput.value);
+                const cleanTranscript = normalizeText(transcript);
+
+                if (cleanTranscript === cleanText) {
+                    outputDiv.innerHTML += `<p>准确！</p>`;
+                    playCorrectSound();
+                    markAsPassed(currentPhraseIndex);
+                    nextPhrase();
+                } else {
+                    const highlighted = diffHighlight(cleanText, cleanTranscript);
+                    outputDiv.innerHTML += `<p>不准确，请再试一次。</p><p>${highlighted}</p>`;
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error("语音识别错误：", event.error);
+                outputDiv.innerHTML = `<p>语音识别错误：${event.error}</p>`;
+            };
+        }
+
+        function normalizeText(text) {
+            return text
+                .replace(/[\u3000-\u303F\uFF00-\uFFEF]/g, "")
+                .replace(/[他她它]/g, "他")
+                .replace(/[他们她们它们]/g, "他们")
+                .trim();
+        }
+
+        function diffHighlight(expected, actual) {
+            let result = "";
+            for (let i = 0; i < expected.length; i++) {
+                if (expected[i] === actual[i]) {
+                    result += expected[i];
+                } else {
+                    result += `<span class="highlight">${actual[i] || "[缺失]"}</span>`;
+                }
+            }
+            return result;
+        }
+
+        function markAsPassed(index) {
+            const phraseElement = document.getElementById(`phrase-${index + 1}`);
+            if (phraseElement) {
+                phraseElement.innerHTML += " ✅";
+                phraseElement.classList.add("passed");
+            }
+        }
+
+        function nextPhrase() {
+            currentPhraseIndex++;
+            if (currentPhraseIndex < phrases.length) {
+                textToReadInput.value = phrases[currentPhraseIndex];
+            } else {
+                outputDiv.innerHTML += "<p>所有句子已完成！</p>";
+            }
+        }
+
+        startButton.addEventListener("click", () => {
+            const recordingDuration = 5000;
+            audioChunks = [];
+            correctSoundPlayed = false;
+            outputDiv.innerHTML = "<p>正在录音，请开始朗读。</p>";
+
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+                audio.controls = true;
+
+                const listItem = document.createElement("li");
+                listItem.appendChild(audio);
+                recordingList.appendChild(listItem);
+
+                outputDiv.innerHTML += "<p>录音结束。</p>";
+
+                startButton.disabled = false;
+                stopButton.disabled = true;
+            };
+
+            mediaRecorder.start();
+            recognition.start();
+
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+            setTimeout(() => {
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                    recognition.stop();
+                }
+            }, recordingDuration);
+        });
+
+        stopButton.addEventListener("click", () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                recognition.stop();
+            }
+        });
+
+        initializeStream();
+    </script>
+</body>
+</html>
